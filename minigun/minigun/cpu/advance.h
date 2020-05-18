@@ -138,30 +138,8 @@ struct DispatchXPU<kDLCPU, Idx, DType, Config, GData, Functor, Alloc> {
     }
     IntArray1D<Idx> lcl_row_offsets;
     Idx out_len = 0;
-    if (Config::kAdvanceAll) {
-      lcl_row_offsets = csr.row_offsets;
-      out_len = csr.column_indices.length;
-    } else {
-      if (Config::kMode != kV2N && Config::kMode != kE2N) {
-        lcl_row_offsets.length = input_frontier.length + 1;
-        lcl_row_offsets.data = alloc->template AllocateWorkspace<Idx>(
-            lcl_row_offsets.length * sizeof(Idx));
-        out_len = ComputeOutputLength(
-            csr, input_frontier, &lcl_row_offsets, alloc);
-      }
-    }
-    if (output_frontier) {
-      if (output_frontier->data == nullptr) {
-        // The output frontier buffer should be allocated.
-        output_frontier->length = out_len;
-        output_frontier->data = alloc->template AllocateData<Idx>(
-            output_frontier->length * sizeof(Idx));
-      } else {
-        CHECK_GE(output_frontier->length, out_len)
-          << "Require output frontier of length " << out_len
-          << " but only got a buffer of length " << output_frontier->length;
-      }
-    }
+    lcl_row_offsets = csr.row_offsets;
+    out_len = csr.column_indices.length;
 
     IntArray1D<Idx> outbuf = (output_frontier)? *output_frontier : IntArray1D<Idx>();
     CPUAdvance<Idx, DType, Config, GData, Functor, Alloc>(

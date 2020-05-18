@@ -11,6 +11,7 @@
 namespace minigun {
 namespace advance {
 
+// NOTE(zihao): this is not in use currently.
 enum AdvanceAlg {
   kAuto = 0,  // auto-tuning
   // Gunrock's LB policy: parallelize by output frontiers

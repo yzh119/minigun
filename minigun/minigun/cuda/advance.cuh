@@ -28,21 +28,8 @@ struct DispatchXPU<kDLGPU, Idx, DType, Config, GData, Functor, Alloc> {
       IntArray1D<Idx>* output_frontier,
       Alloc* alloc) {
     // Call advance
-    if (Config::kAdvanceAll) {
-      AdvanceAlg algo = FindAdvanceAllAlgo<Idx, Config>(rtcfg, coo);
-      CudaAdvanceAll<Idx, DType, Config, GData, Functor, Alloc>(
-          algo, rtcfg, spmat, gdata, output_frontier, alloc);
-    } else {
-#if ENABLE_PARTIAL_FRONTIER
-      AdvanceAlg algo = FindAdvanceAlgo<Idx, Config>(rtcfg, coo,
-          input_frontier);
-      CudaAdvanceExecutor<Idx, DType, Config, GData, Functor, Alloc> exec(
-          algo, rtcfg, *spmat.coo, gdata, input_frontier, output_frontier, alloc);
-      exec.Run();
-#else
-      LOG(FATAL) << "Partial frontier is not supported for CUDA 10.0";
-#endif
-    }
+    CudaAdvanceAll<Idx, DType, Config, GData, Functor, Alloc>(
+        rtcfg, spmat, gdata, output_frontier, alloc);
   }
 };
 

@@ -17,7 +17,7 @@ template <typename Idx,
           typename Config,
           typename GData,
           typename Functor>
-__global__ void CudaAdvanceAllGunrockLBOutKernel(
+__global__ void CudaAdvanceAllEdgeParallel(
     Coo<Idx> coo,
     GData gdata,
     IntArray1D<Idx> output_frontier) {
@@ -29,17 +29,6 @@ __global__ void CudaAdvanceAllGunrockLBOutKernel(
     Idx dst = _ldg(coo.column.data + eid);
     if (Functor::CondEdge(src, dst, eid, &gdata)) {
       Functor::ApplyEdge(src, dst, eid, &gdata);
-      // Add dst/eid to output frontier
-      if (Config::kMode == kV2V || Config::kMode == kE2V) {
-        output_frontier.data[eid] = dst;
-      } else if (Config::kMode == kV2E || Config::kMode == kE2E) {
-        output_frontier.data[eid] = eid;
-      }
-    } else {
-      if (Config::kMode != kV2N && Config::kMode != kE2N) {
-        // Add invalid to output frontier
-        output_frontier.data[eid] = MG_INVALID;
-      }
     }
     eid += stride_y;
   }
@@ -51,7 +40,7 @@ template <typename Idx,
           typename GData,
           typename Functor,
           typename Alloc>
-void CudaAdvanceAllGunrockLBOut(
+void CudaAdvanceAllEdgeParallel(
     const RuntimeConfig& rtcfg,
     const Coo<Idx>& coo,
     GData* gdata,
@@ -69,7 +58,7 @@ void CudaAdvanceAllGunrockLBOut(
   LOG(INFO) << "Blocks: (" << nblks.x << "," << nblks.y << ") Threads: ("
     << nthrs.x << "," << nthrs.y << ")";
   */
-  CudaAdvanceAllGunrockLBOutKernel<Idx, DType, Config, GData, Functor>
+  CudaAdvanceAllGunrockEdgeParallel<Idx, DType, Config, GData, Functor>
     <<<nblks, nthrs, 0, rtcfg.stream>>>(coo, *gdata, output_frontier);
 }
 
@@ -168,7 +157,6 @@ template <typename Idx,
           typename Functor,
           typename Alloc>
 void CudaAdvanceAll(
-    AdvanceAlg algo,
     const RuntimeConfig& rtcfg,
     const SpMat<Idx> &spmat,
     GData* gdata,
@@ -191,25 +179,19 @@ void CudaAdvanceAll(
   }
    */
   IntArray1D<Idx> outbuf = IntArray1D<Idx>(); //(output_frontier)? *output_frontier : IntArray1D<Idx>();
-  switch (algo) {
-    case kGunrockLBOut :
-      switch (Config::kParallel) {
-        case kSrc:
-          CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
-              rtcfg, *spmat.csr, gdata, outbuf, alloc);
-          break;
-        case kEdge:
-          CudaAdvanceAllGunrockLBOut<Idx, DType, Config, GData, Functor, Alloc>(
-              rtcfg, *spmat.coo, gdata, outbuf, alloc);
-          break;
-        case kDst:
-          CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
-              rtcfg, *spmat.csr_t, gdata, outbuf, alloc);
-          break;
-      }
+  switch (Config::kParallel) {
+    case kSrc:
+      CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
+          rtcfg, *spmat.csr, gdata, outbuf, alloc);
       break;
-    default:
-      LOG(FATAL) << "Algorithm " << algo << " is not supported.";
+    case kEdge:
+      CudaAdvanceAllEdgeParallel<Idx, DType, Config, GData, Functor, Alloc>(
+          rtcfg, *spmat.coo, gdata, outbuf, alloc);
+      break;
+    case kDst:
+      CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
+          rtcfg, *spmat.csr_t, gdata, outbuf, alloc);
+      break;
   }
 }
 
