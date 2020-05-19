@@ -6,10 +6,29 @@
 #define MINIGUN_ADVANCE_ALL_H
 
 #include "../advance.h"
+#include <algorithm>
 #include <dmlc/omp.h>
 
 namespace minigun {
 namespace advance {
+
+template <typename Idx,
+          typename DType,
+          typename Config,
+          typename GData,
+          typename Functor,
+          typename Alloc>
+void CPUAdvanceAllEdgeParallelCSR(
+    const Csr<Idx>& csr,
+    GData *gdata) {
+  Idx E = csr.column_indices.length;
+#pragma omp parallel for
+  for (Idx eid = 0; eid < E; ++eid) {
+    const Idx src = std::lower_bound(csr.row_offsets, csr.row_offsets + csr.row_offsets.length, eid);
+    const Idx dst = csr.column_indices.data[eid];
+    Functor::ApplyEdge(src, dst, eid, gdata);
+  }  
+}
 
 template <typename Idx,
           typename DType,
@@ -25,8 +44,7 @@ void CPUAdvanceAllEdgeParallel(
   for (Idx eid = 0; eid < E; ++eid) {
     const Idx src = coo.row.data[eid];
     const Idx dst = coo.col.data[eid];
-    if (Functor::CondEdge(src, dst, eid, gdata))
-      Functor::ApplyEdge(src, dst, eid, gdata);
+    Functor::ApplyEdge(src, dst, eid, gdata);
   }
 }
 
@@ -48,9 +66,7 @@ void CPUAdvanceAllNodeParallel(
       const Idx end = csr.row_offsets.data[dst + 1];
       for (Idx eid = start; eid < end; ++eid) {
         const Idx src = csr.column_indices.data[eid];
-        if (Functor::CondEdge(src, dst, eid, gdata)) {
-          Functor::ApplyEdge(src, dst, eid, gdata);
-        }
+        Functor::ApplyEdge(src, dst, eid, gdata);
       }
     }
   } else {
@@ -61,9 +77,7 @@ void CPUAdvanceAllNodeParallel(
       const Idx end = csr.row_offsets.data[src + 1];
       for (Idx eid = start; eid < end; ++eid) {
         const Idx dst = csr.column_indices.data[eid];
-        if (Functor::CondEdge(src, dst, eid, gdata)) {
-          Functor::ApplyEdge(src, dst, eid, gdata);
-        }
+        Functor::ApplyEdge(src, dst, eid, gdata);
       }
     }
   }
@@ -80,13 +94,26 @@ void CPUAdvanceAll(
       GData* gdata) {
   switch (Config::kParallel) {
     case kSrc:
-      CPUAdvanceAllNodeParallel(*spmat.csr, gdata);
+      if (spmat.out_csr != nullptr)
+        CPUAdvanceAllNodeParallel(*spmat.out_csr, gdata);
+      else
+        LOG(FATAL) << "out_csr need to be created in source parallel mode.";
       break;
     case kEdge:
-      CPUAdvanceAllEdgeParallel(*spmat.coo, gdata);
+      if (spmat.coo != nullptr)
+        CPUAdvanceAllEdgeParallel(*spmat.coo, gdata);
+      else if (spmat.out_csr != nullptr)
+        CPUAdvanceAllEdgeParallelCSR(*spmat.out_csr, gdata);
+      else if (spmat.in_csr != nullptr)
+        CPUAdvanceAllEdgeParallelCRS(*spmat.in_csr, gdata);
+      else
+        LOG(FATAL) << "At least one sparse format should be created.";
       break;
     case kDst:
-      CPUAdvanceAllNodeParallel(*spmat.csr_t, gdata);
+      if (spmat.in_csr != nullptr)
+        CPUAdvanceAllNodeParallel(*spmat.in_csr, gdata);
+      else
+        LOG(FATAL) << "in_csr need to be created in destination parallel mode."; 
       break;
   }
 }

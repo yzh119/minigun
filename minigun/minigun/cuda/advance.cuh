@@ -4,7 +4,6 @@
 #include "../advance.h"
 #include "./advance_all.cuh"
 #include "./cuda_common.cuh"
-#include "./tuning.h"
 
 #if ENABLE_PARTIAL_FRONTIER
 #include "./advance_lb.cuh"
@@ -24,12 +23,10 @@ struct DispatchXPU<kDLGPU, Idx, DType, Config, GData, Functor, Alloc> {
       const RuntimeConfig& rtcfg,
       const SpMat<Idx>& spmat,
       GData* gdata,
-      IntArray1D<Idx> input_frontier,
-      IntArray1D<Idx>* output_frontier,
       Alloc* alloc) {
     // Call advance
     CudaAdvanceAll<Idx, DType, Config, GData, Functor, Alloc>(
-        rtcfg, spmat, gdata, output_frontier, alloc);
+        rtcfg, spmat, gdata, alloc);
   }
 };
 

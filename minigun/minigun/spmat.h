@@ -37,8 +37,8 @@ using LongCoo = Coo<int64_t>;
 
 template <typename Idx>
 struct SpMat {
-  Csr<Idx>* csr = nullptr;
-  Csr<Idx>* csr_t = nullptr;
+  Csr<Idx>* in_csr = nullptr;
+  Csr<Idx>* out_csr = nullptr;
   Coo<Idx>* coo = nullptr;
 };
 using IntSpMat = SpMat<int32_t>;

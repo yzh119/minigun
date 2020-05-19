@@ -12,6 +12,47 @@ namespace advance {
 #define PER_THREAD_WORKLOAD 1
 #define MAX_NBLOCKS 65535
 
+// Binary search the row_offsets to find the source node of the edge id.
+template <typename Idx>
+__device__ __forceinline__ Idx BinarySearchSrc(const IntArray1D<Idx>& array, Idx eid) {
+  Idx lo = 0, hi = array.length - 1;
+  while (lo < hi) {
+    Idx mid = (lo + hi) >> 1;
+    if (_ldg(array.data + mid) <= eid) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  // INVARIANT: lo == hi
+  if (_ldg(array.data + hi) == eid) {
+    return hi;
+  } else {
+    return hi - 1;
+  }
+}
+
+template <typename Idx,
+          typename DType,
+          typename Config,
+          typename GData,
+          typename Functor>
+__global__ void CudaAdvanceAllEdgeParallelCSR(
+    Csr<Idx> csr,
+    GData gdata) {
+  Idx ty = blockIdx.y * blockDim.y + threadIdx.y;
+  Idx stride_y = blockDim.y * gridDim.y;
+  Idx eid = ty;
+  while (eid < csr.column_indices.length) {
+    // TODO(minjie): this is pretty inefficient; binary search is needed only
+    //   when the thread is processing the neighbor list of a new node.
+    Idx src = BinarySearchSrc(csr.row_offsets, eid);
+    Idx dst = _ldg(csr.column_indices.data + eid);
+    Functor::ApplyEdge(src, dst, eid, &gdata);
+    eid += stride_y;
+  }
+}
+
 template <typename Idx,
           typename DType,
           typename Config,
@@ -19,17 +60,14 @@ template <typename Idx,
           typename Functor>
 __global__ void CudaAdvanceAllEdgeParallel(
     Coo<Idx> coo,
-    GData gdata,
-    IntArray1D<Idx> output_frontier) {
+    GData gdata) {
   Idx ty = blockIdx.y * blockDim.y + threadIdx.y;
   Idx stride_y = blockDim.y * gridDim.y;
   Idx eid = ty;
   while (eid < coo.column.length) {
     Idx src = _ldg(coo.row.data + eid);
     Idx dst = _ldg(coo.column.data + eid);
-    if (Functor::CondEdge(src, dst, eid, &gdata)) {
-      Functor::ApplyEdge(src, dst, eid, &gdata);
-    }
+    Functor::ApplyEdge(src, dst, eid, &gdata);
     eid += stride_y;
   }
 }
@@ -44,7 +82,6 @@ void CudaAdvanceAllEdgeParallel(
     const RuntimeConfig& rtcfg,
     const Coo<Idx>& coo,
     GData* gdata,
-    IntArray1D<Idx> output_frontier,
     Alloc* alloc) {
   CHECK_GT(rtcfg.data_num_blocks, 0);
   CHECK_GT(rtcfg.data_num_threads, 0);
@@ -59,7 +96,7 @@ void CudaAdvanceAllEdgeParallel(
     << nthrs.x << "," << nthrs.y << ")";
   */
   CudaAdvanceAllGunrockEdgeParallel<Idx, DType, Config, GData, Functor>
-    <<<nblks, nthrs, 0, rtcfg.stream>>>(coo, *gdata, output_frontier);
+    <<<nblks, nthrs, 0, rtcfg.stream>>>(coo, *gdata);
 }
 
 template <typename Idx,
@@ -89,8 +126,7 @@ __global__ void CudaAdvanceAllNodeParallelKernel(
           val = _ldg(outbuf + outoff);
         for (Idx eid = start; eid < end; ++eid) {
           Idx src = _ldg(csr.column_indices.data + eid);
-          if (Functor::CondEdge(src, dst, eid, &gdata))
-            Functor::ApplyEdgeReduce(src, dst, eid, feat_idx, val, &gdata);
+          Functor::ApplyEdgeReduce(src, dst, eid, feat_idx, val, &gdata);
         }
         if (outbuf != nullptr)
           outbuf[outoff] = val;
@@ -110,8 +146,7 @@ __global__ void CudaAdvanceAllNodeParallelKernel(
           val = _ldg(outbuf + outoff);
         for (Idx eid = start; eid < end; ++eid) {
           Idx dst = _ldg(csr.column_indices.data + eid);
-          if (Functor::CondEdge(src, dst, eid, &gdata))
-            Functor::ApplyEdgeReduce(src, dst, eid, feat_idx, val, &gdata);
+          Functor::ApplyEdgeReduce(src, dst, eid, feat_idx, val, &gdata);
         }
         if (outbuf != nullptr)
           outbuf[outoff] = val;
@@ -132,7 +167,6 @@ void CudaAdvanceAllNodeParallel(
     const RuntimeConfig& rtcfg,
     const Csr<Idx>& csr,
     GData* gdata,
-    IntArray1D<Idx> output_frontier,
     Alloc* alloc) {
   CHECK_GT(rtcfg.data_num_blocks, 0);
   CHECK_GT(rtcfg.data_num_threads, 0);
@@ -160,37 +194,34 @@ void CudaAdvanceAll(
     const RuntimeConfig& rtcfg,
     const SpMat<Idx> &spmat,
     GData* gdata,
-    IntArray1D<Idx>* output_frontier,
     Alloc* alloc) {
-  /*
-  Idx out_len = coo.column.length;
-  if (output_frontier) {
-    if (output_frontier->data == nullptr) {
-      // Allocate output frointer buffer, the length is equal to the number
-      // of edges.
-      output_frontier->length = out_len;
-      output_frontier->data = alloc->template AllocateData<Idx>(
-          output_frontier->length * sizeof(Idx));
-    } else {
-      CHECK_GE(output_frontier->length, out_len)
-        << "Require output frontier of length " << out_len
-        << " but only got a buffer of length " << output_frontier->length;
-    }
-  }
-   */
-  IntArray1D<Idx> outbuf = IntArray1D<Idx>(); //(output_frontier)? *output_frontier : IntArray1D<Idx>();
   switch (Config::kParallel) {
     case kSrc:
-      CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
-          rtcfg, *spmat.csr, gdata, outbuf, alloc);
+      if (spmat.out_csr != nullptr)
+        CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
+            rtcfg, *spmat.out_csr, gdata, alloc);
+      else
+        LOG(FATAL) << "out_csr must be created in source parallel mode";
       break;
     case kEdge:
-      CudaAdvanceAllEdgeParallel<Idx, DType, Config, GData, Functor, Alloc>(
-          rtcfg, *spmat.coo, gdata, outbuf, alloc);
+      if (spmat.coo != nullptr)
+        CudaAdvanceAllEdgeParallel<Idx, DType, Config, GData, Functor, Alloc>(
+            rtcfg, *spmat.coo, gdata, alloc);
+      else if (spmat.out_csr != nullptr)
+        CudaAdvanceAllEdgeParallelCSR<Idx, DType, Config, GData, Functor, Alloc>(
+            rtcfg, *spmat.out_csr, gdata, alloc);
+      else if (spmat.in_csr != nullptr)
+        CudaAdvanceAllEdgeParallelCSR<Idx, DType, Config, GData, Functor, Alloc>(
+            rtcfg, *spmat.in_csr, gdata, alloc);
+      else
+        LOG(FATAL) << "At least one sparse format should be created.";
       break;
     case kDst:
-      CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
-          rtcfg, *spmat.csr_t, gdata, outbuf, alloc);
+      if (spmat.in_csr != nullptr)
+        CudaAdvanceAllNodeParallel<Idx, DType, Config, GData, Functor, Alloc>(
+            rtcfg, *spmat.in_csr, gdata, alloc);
+      else
+        LOG(FATAL) << "in_csr must be created in destination parallel mode.";
       break;
   }
 }
