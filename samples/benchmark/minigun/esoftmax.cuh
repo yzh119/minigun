@@ -18,10 +18,6 @@ struct GData {
 
 // Max
 struct EdgeMax {
-  static __device__ __forceinline__ bool CondEdge(
-      int32_t src, int32_t dst, int32_t eid, GData* gdata) {
-    return true;
-  }
   static __device__ __forceinline__ void ApplyEdge(
       int32_t src, int32_t dst, int32_t eid, GData* gdata) {}
   static __device__ __forceinline__ void ApplyEdgeReduce(
@@ -40,10 +36,6 @@ struct EdgeMax {
 
 // minus max, exp and sum
 struct MinusMaxExpSum {
-  static __device__ __forceinline__ bool CondEdge(
-      int32_t src, int32_t dst, int32_t eid, GData* gdata) {
-    return true;
-  }
   static __device__ __forceinline__ void ApplyEdge(
       int32_t src, int32_t dst, int32_t eid, GData* gdata) {}
   static __device__ __forceinline__ void ApplyEdgeReduce(
@@ -66,10 +58,6 @@ struct MinusMaxExpSum {
 
 // norm (node parallel by destinatino)
 struct NormByDst {
-  static __device__ __forceinline__ bool CondEdge(
-      int32_t src, int32_t dst, int32_t eid, GData* gdata) {
-    return true;
-  }
   static __device__ __forceinline__ void ApplyEdge(
       int32_t src, int32_t dst, int32_t eid, GData* gdata) {}
   static __device__ __forceinline__ void ApplyEdgeReduce(

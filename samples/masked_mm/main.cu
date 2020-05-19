@@ -15,10 +15,6 @@ struct GData {
 };
 
 struct MaskedMMFunctor {
-  static __device__ __forceinline__ bool CondEdge(
-      int32_t src, int32_t dst, int32_t eid, GData* gdata) {
-    return true;
-  }
   static __device__ __forceinline__ void ApplyEdge(
       int32_t src, int32_t dst, int32_t eid, GData* gdata) {
     int32_t tx = threadIdx.x;
@@ -124,9 +120,9 @@ int main(int argc, char** argv) {
   std::vector<float> truth = GroundTruth(row_offsets, column_indices, vvec);
   //utils::VecPrint(truth);
 
-  typedef minigun::advance::Config<true, minigun::advance::kV2N, minigun::advance::kEdge> Config;
+  typedef minigun::advance::Config<minigun::advance::kEdge> Config;
   minigun::advance::Advance<kDLGPU, int32_t, float, Config, GData, MaskedMMFunctor>(
-      config, spmat, &gdata, infront);
+      config, spmat, &gdata);
 
   CUDA_CALL(cudaDeviceSynchronize());
 
