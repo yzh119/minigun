@@ -66,7 +66,7 @@ void CudaAdvanceAllEdgeParallelCSR(
     Alloc* alloc) {
   CHECK_GT(rtcfg.data_num_blocks, 0);
   CHECK_GT(rtcfg.data_num_threads, 0);
-  const Idx M = coo.column.length;
+  const Idx M = csr.column_indices.length;
   const int ty = MAX_NTHREADS / rtcfg.data_num_threads;
   const int ny = ty * PER_THREAD_WORKLOAD;
   const int by = std::min((M + ny - 1) / ny, static_cast<Idx>(MAX_NBLOCKS));
