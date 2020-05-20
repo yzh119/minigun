@@ -37,7 +37,7 @@ template <typename Idx,
           typename Config,
           typename GData,
           typename Functor>
-__global__ void CudaAdvanceAllEdgeParallelCSR(
+__global__ void CudaAdvanceAllEdgeParallelCSRKernel(
     Csr<Idx> csr,
     GData gdata) {
   Idx ty = blockIdx.y * blockDim.y + threadIdx.y;
@@ -57,8 +57,35 @@ template <typename Idx,
           typename DType,
           typename Config,
           typename GData,
+          typename Functor,
+          typename Alloc>
+void CudaAdvanceAllEdgeParallelCSR(
+    const RuntimeConfig& rtcfg,
+    const Csr<Idx>& csr,
+    GData* gdata,
+    Alloc* alloc) {
+  CHECK_GT(rtcfg.data_num_blocks, 0);
+  CHECK_GT(rtcfg.data_num_threads, 0);
+  const Idx M = coo.column.length;
+  const int ty = MAX_NTHREADS / rtcfg.data_num_threads;
+  const int ny = ty * PER_THREAD_WORKLOAD;
+  const int by = std::min((M + ny - 1) / ny, static_cast<Idx>(MAX_NBLOCKS));
+  const dim3 nblks(rtcfg.data_num_blocks, by);
+  const dim3 nthrs(rtcfg.data_num_threads, ty);
+  /*
+  LOG(INFO) << "Blocks: (" << nblks.x << "," << nblks.y << ") Threads: ("
+    << nthrs.x << "," << nthrs.y << ")";
+  */
+  CudaAdvanceAllEdgeParallelCSRKernel<Idx, DType, Config, GData, Functor>
+    <<<nblks, nthrs, 0, rtcfg.stream>>>(csr, *gdata);
+}
+
+template <typename Idx,
+          typename DType,
+          typename Config,
+          typename GData,
           typename Functor>
-__global__ void CudaAdvanceAllEdgeParallel(
+__global__ void CudaAdvanceAllEdgeParallelKernel(
     Coo<Idx> coo,
     GData gdata) {
   Idx ty = blockIdx.y * blockDim.y + threadIdx.y;
@@ -95,7 +122,7 @@ void CudaAdvanceAllEdgeParallel(
   LOG(INFO) << "Blocks: (" << nblks.x << "," << nblks.y << ") Threads: ("
     << nthrs.x << "," << nthrs.y << ")";
   */
-  CudaAdvanceAllGunrockEdgeParallel<Idx, DType, Config, GData, Functor>
+  CudaAdvanceAllEdgeParallelKernel<Idx, DType, Config, GData, Functor>
     <<<nblks, nthrs, 0, rtcfg.stream>>>(coo, *gdata);
 }
 
